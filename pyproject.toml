@@ -1,0 +1,28 @@
+[project]
+name = "nanochat-varun"
+version = "0.1.0"
+description = "my recreation of Andrej Karpathy's ChatGPT clone"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.8.0",
+    "numpy",
+    "tiktoken",
+    "tqdm",
+    "huggingface_hub",
+    "wandb"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["nanochat_varun"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.uv]
+dev-dependencies = [
+    "pytest",
+    "black",
+]
