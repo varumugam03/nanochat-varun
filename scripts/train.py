@@ -33,12 +33,19 @@ optim_groups = [
 
 optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8)
 
-#training loop
+x = torch.randint(0, 50257, (B, T + 1))
+y = x[:, 1:]
+x = x[:, :-1]
+x, y = x.to(device), y.to(device)
+print(x.shape)
+print(y.shape)
+
+# training loop
 for step in range(max_steps):
     t0 = time.time()
 
-    x, y = train_loader.next_batch()
-    x, y = x.to(device), y.to(device)
+    # x, y = train_loader.next_batch()
+    # x, y = x.to(device), y.to(device)
 
     with torch.autocast(device_type=device if device != 'mps' else 'cpu', dtype=torch.bfloat16):
         loss = gpt(x, targets=y)
