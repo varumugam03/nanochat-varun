@@ -52,27 +52,28 @@ fn count_pairs_parallel(
     counts: &[i32],
 ) -> (AHashMap<Pair, i32>, AHashMap<Pair, AHashSet<usize>>) {
     words.par_iter().enumerate()
-            .map(|(i, w)| {
-                let mut local_pc: AHashMap<Pair, i32> = AHashMap::new();
-                let mut local_wtu: AHashMap<Pair, AHashSet<usize>> = AHashMap::new();
-                if w.ids.len() >= 2 && counts[i] != 0 {
-                    for (a, b) in w.pairs() {
-                        *local_pc.entry((a, b)).or_default() += counts[i];
-                        local_wtu.entry((a, b)).or_default().insert(i);
-                    }
-                }
-                (local_pc, local_wtu)
-            })
-            .reduce(
+            .fold(
                 || (AHashMap::new(), AHashMap::new()),
-                |(mut acc_pc, mut acc_wtu), (pc, wtu)| {
-                    for (k, v) in pc {
-                        *acc_pc.entry(k).or_default() += v;
-                    }
-                    for (k, s) in wtu {
-                        acc_wtu.entry(k).or_default().extend(s);
+                |(mut acc_pc, mut acc_wtu), (i, w)| {
+                    if w.ids.len() >= 2 && counts[i] != 0 {
+                        for (a, b) in w.pairs() {
+                            *acc_pc.entry((a, b)).or_default() += counts[i];
+                            acc_wtu.entry((a, b)).or_default().insert(i);
+                        }
                     }
                     (acc_pc, acc_wtu)
+                },
+            )
+            .reduce(
+                || (AHashMap::new(), AHashMap::new()),
+                |(mut global_pc, mut global_wtu), (local_pc, local_wtu)| {
+                    for (k, v) in local_pc {
+                        *global_pc.entry(k).or_default() += v;
+                    }
+                    for (k, s) in local_wtu {
+                        global_wtu.entry(k).or_default().extend(s);
+                    }
+                    (global_pc, global_wtu)
                 },
             )
 }
