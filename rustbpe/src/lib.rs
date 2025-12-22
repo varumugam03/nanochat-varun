@@ -2,7 +2,7 @@ use std::collections::HashMap as StdHashMap;
 use fancy_regex::Regex;
 use pyo3::prelude::*;
 
-use ahash::{AHashMap};
+use ahash::{AHashMap, AHashSet};
 use compact_str::CompactString;
 use rayon::prelude::*;
 
@@ -35,19 +35,72 @@ impl Word {
         Self { ids }
     }
 
-    // #[inline]
-    // fn pairs<'a>(&'a self) -> impl Iterator<Item = Pair> + 'a {
-    //     self.ids.windows(2).map(|w| (w[0], w[1]))
-    // }
+    #[inline]
+    fn pairs<'a>(&'a self) -> impl Iterator<Item = Pair> + 'a {
+        self.ids.windows(2).map(|w| (w[0], w[1]))
+    }
 
-    // fn merge_pair(&mut self, pair: Pair, new_id: u32) -> Vec<(pair, u32)> {
-    //     let (a, b) = pair;
+    fn merge_pair(&mut self, pair: Pair, new_id: u32) -> Vec<(pair, u32)> {
+        let (a, b) = pair;
 
-    // }
+    }
+}
+
+#[inline]
+fn count_pairs_parallel(
+    words: &[Word],
+    counts: &[i32],
+) -> (AHashMap<Pair, i32>, AHashMap<Pair, AHashSet<usize>>) {
+    words.par_iter().enumerate()
+            .map(|(i, w)| {
+                let mut local_pc: AHashMap<Pair, i32> = AHashMap::new();
+                let mut local_wtu: AHashMap<Pair, AHashSet<usize>> = AHashMap::new();
+                if w.ids.len() >= 2 && counts[i] != 0 {
+                    for (a, b) in w.pairs() {
+                        *local_pc.entry((a, b)).or_default() += counts[i];
+                        local_wtu.entry((a, b)).or_default().insert(i);
+                    }
+                }
+                (local_pc, local_wtu)
+            })
+            .reduce(
+                || (AHashMap::new(), AHashMap::new()),
+                |(mut acc_pc, mut acc_wtu), (pc, wtu)| {
+                    for (k, v) in pc {
+                        *acc_pc.entry(k).or_default() += v;
+                    }
+                    for (k, s) in wtu {
+                        acc_wtu.entry(k).or_default().extend(s);
+                    }
+                    (acc_pc, acc_wtu)
+                },
+            )
 }
 
 // ------end helpers------
 
+// ------rust only tokenizer impl------
+
+impl Tokenizer {
+
+    /// Core incremental BPE training - given unique words and their counts.
+    /// `words` : one entry per unique chunk of (Vec<u32> of token-ids/bytes).
+    /// `counts` : same length as `words`, count per chunk
+
+    fn train_core_incremental(&mut self, mut words: Vec<Word>, counts: Vec<i32>, vocab_size: u32) {
+        assert!(vocab_size >= 256, "vocab_size must be at least 256");
+        let num_merges = vocab_size - 256;
+        log::info!("Training BPE with {} merges", num_merges);
+        self.merges.clear();
+
+        // initial pair_counts and where_to_update (parallel)
+        log::info!("Computing initial pair counts form {} unique sequences", words.len());
+        let (mut pair_counts, mut where_to_update) = count_pairs_parallel(&words, &counts);
+    }
+
+}
+
+// ------python interface------
 #[pymethods]
 impl Tokenizer {
     ///Create a new Tokenizer
