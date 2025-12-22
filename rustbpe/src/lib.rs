@@ -403,6 +403,39 @@ impl Tokenizer {
         
         Ok(())
     }
+
+    #[pyo3(signature = ())]
+    #[pyo3(text_signature = "(self)")]
+    pub fn get_mergeable_ranks(&self) -> Vec<(Vec<u8>, u32)> {
+        let mut mergeable_ranks = Vec::new();
+
+        //build vocabulary incrementally from low to high token IDs
+        let mut token_bytes: Vec<Vec<u8>> = (0..256_u32).map(|i| vec![i as u8]).collect();
+
+        for (i, bytes) in token_bytes.iter().enumerate() {
+            mergeable_ranks.push((bytes.clone(), i as u32));
+        }
+
+        //sort merges by token id (so we can reconstruct bytes progressively)
+        let mut sorted_merges: Vec<_> = self.merges.iter().collect();
+        sorted_merges.sort_by_key(|&(_, &token_id)| token_id);
+
+        for (&(left, right), &token_id) in sorted_merges {
+            let mut merged_bytes = token_bytes[left as usize].clone();
+            merged_bytes.extend(&token_bytes[right as usize]);
+            
+            if token_bytes.len() <= token_id as usize {
+                token_bytes.resize(token_id as usize + 1, Vec::new()); // didnt know you could use usize like this - pretty cool
+            }
+            token_bytes[token_id as usize] = merged_bytes.clone();
+
+            mergeable_ranks.push((merged_bytes, token_id));
+        }
+
+        mergeable_ranks
+
+    }
+
 }
 
 #[pymodule]

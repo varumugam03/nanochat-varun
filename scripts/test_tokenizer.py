@@ -29,19 +29,15 @@ def main():
     # and process them in parallel on all CPU cores.
     word_counts = tokenizer.train_from_iterator(
         file_iterator("/Users/varumugam/Desktop/Projects/nanochat-varun/input.txt"), 
-        vocab_size=10000, 
+        vocab_size=1000, 
         buffer_size=500 
     )
     
     print(f"\n--- Processing Complete ---")
     
-    # FIX: Convert .items() to a list before slicing
-    # merges is now a standard python dict
-    merges_list = list(tokenizer.merges.items())
-    merges_list.sort(key=lambda x: x[1], reverse=True)
+    mergeable_ranks = tokenizer.get_mergeable_ranks()
     
-    for merge in merges_list[:50]:
-        print(merge)
+    print(mergeable_ranks)
       
 if __name__ == "__main__":
     main()
