@@ -29,20 +29,19 @@ def main():
     # and process them in parallel on all CPU cores.
     word_counts = tokenizer.train_from_iterator(
         file_iterator("/Users/varumugam/Desktop/Projects/nanochat-varun/input.txt"), 
-        vocab_size=1000, 
+        vocab_size=10000, 
         buffer_size=500 
     )
     
     print(f"\n--- Processing Complete ---")
-    print(f"Total unique tokens found: {len(word_counts)}")
-
-    # 3. Print a sample of the results (top 20 most frequent tokens)
-    # Sorting purely for display purposes
-    sorted_tokens = sorted(word_counts.items(), key=lambda item: item[1], reverse=True)
     
-    print("\nTop 20 Tokens:")
-    for word, count in sorted_tokens[:20]:
-        print(f"Token: {repr(word):<15} Count: {count}")
-
+    # FIX: Convert .items() to a list before slicing
+    # merges is now a standard python dict
+    merges_list = list(tokenizer.merges.items())
+    merges_list.sort(key=lambda x: x[1], reverse=True)
+    
+    for merge in merges_list[:50]:
+        print(merge)
+      
 if __name__ == "__main__":
     main()

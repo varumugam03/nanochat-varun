@@ -1,3 +1,5 @@
+use::std::cmp::Ordering;
+
 use std::collections::HashMap as StdHashMap;
 use fancy_regex::Regex;
 use pyo3::prelude::*;
@@ -6,6 +8,7 @@ use ahash::{AHashMap, AHashSet};
 use compact_str::CompactString;
 use rayon::prelude::*;
 
+use dary_heap::OctonaryHeap;
 
 // GPT-4 style regex pattern for tokenization
 const GPT4_PATTERN: &str = r"'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+";
@@ -15,6 +18,7 @@ type Pair = (u32, u32);
 #[pyclass]
 pub struct Tokenizer {
     /// Maps pairs of tokens to their merged token ID
+    #[pyo3(get)]
     pub merges : StdHashMap<Pair, u32>,
     /// The regex pattern used for tokenization
     pub pattern: String,
@@ -40,9 +44,83 @@ impl Word {
         self.ids.windows(2).map(|w| (w[0], w[1]))
     }
 
-    fn merge_pair(&mut self, pair: Pair, new_id: u32) -> Vec<(pair, u32)> {
+    /// Merge all the non-overlapping occurrences of pair -> new_id.
+    /// returns a small vec of local pair-count deltas for THIS word only:
+    ///     -1 for removed pairs, +1 for newly created pairs.
+    ///
+    /// NOTE: this version deliberately avoids a HashMap in the hot loop
+    fn merge_pair(&mut self, pair: Pair, new_id: u32) -> Vec<(Pair, i32)> {
         let (a, b) = pair;
+        let n = self.ids.len();
+        if n < 2 {
+            return Vec::new();
+        }
 
+        let mut out: Vec<u32> = Vec::with_capacity(n);
+        let mut deltas: Vec<(Pair, i32)> = Vec::with_capacity(6);
+
+        let mut i = 0;
+        while i < n {
+            if i + 1 < n && self.ids[i] == a && self.ids[i + 1] == b {
+                let left = out.last().copied();
+                let right = if i + 2 < n { Some(self.ids[i + 2]) } else { None };
+
+                // remove old pairs
+                if let Some(x) = left {
+                    deltas.push(((x, a), -1));
+                    deltas.push(((x, new_id), 1));
+                }
+
+                deltas.push(((a, b), -1));
+
+                if let Some(y) = right {
+                    deltas.push(((b, y), -1));
+                    deltas.push(((new_id, y), 1));
+                }
+
+                // write merged token
+                out.push(new_id);
+                i += 2;
+            } else {
+                out.push(self.ids[i]);
+                i += 1;
+            }
+        }
+
+        self.ids = out;
+        deltas
+    }
+}
+
+#[derive(Debug, Eq)]
+struct MergeJob {
+    pair: Pair,
+    count: u64,
+    /// set of word indices this pair may occur and needs processing
+    pos: AHashSet<usize>,
+}
+
+impl PartialEq for MergeJob {
+    fn eq(&self, other: &Self) -> bool {
+        self.count == other.count && self.pair == other.pair
+    }
+}
+
+impl PartialOrd for MergeJob {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MergeJob {
+    fn cmp(&self, other: &Self) -> Ordering {
+        //Max-heap by count; tie-break to ascending pair order (deterministic)
+        if self.count != other.count {
+            self.count.cmp(&other.count)
+        }else {
+            //this is to give priority to the smaller pairs by return "greater" for smaller pairs
+            other.pair.cmp(&self.pair) 
+        }
     }
 }
 
@@ -53,7 +131,7 @@ fn count_pairs_parallel(
 ) -> (AHashMap<Pair, i32>, AHashMap<Pair, AHashSet<usize>>) {
     words.par_iter().enumerate()
             .fold(
-                || (AHashMap::new(), AHashMap::new()),
+                || (AHashMap::new(), AHashMap::<Pair, AHashSet<usize>>::new()),
                 |(mut acc_pc, mut acc_wtu), (i, w)| {
                     if w.ids.len() >= 2 && counts[i] != 0 {
                         for (a, b) in w.pairs() {
@@ -97,7 +175,95 @@ impl Tokenizer {
         // initial pair_counts and where_to_update (parallel)
         log::info!("Computing initial pair counts form {} unique sequences", words.len());
         let (mut pair_counts, mut where_to_update) = count_pairs_parallel(&words, &counts);
-    }
+
+        // build heap
+        log::info!("Building heap with {} unique pairs", pair_counts.len());
+        let mut heap = OctonaryHeap::with_capacity(pair_counts.len());
+        for (pair, pos) in where_to_update.drain() {
+            let c = *pair_counts.get(&pair).unwrap_or(&0);
+            if c > 0 {
+                heap.push(MergeJob{
+                    pair,
+                    count: c as u64,
+                    pos,
+                });
+            }
+        }
+
+        //merge loop
+        log::info!("Starting merge loop");
+        let mut merges_done = 0u32;
+        let mut last_log_percent = 0u32;
+
+        while merges_done < num_merges {
+            let Some(mut top) = heap.pop() else { break; }; // weird edge case I don't understand - apparently its possible for the heap to be empty?
+            
+            //lazy refresh - pair_counts is always true, heap value can be stale. This is just so we don't have to update it every time counts change
+            //literally being lazy in logic, the amount of work done is the same as if we were to update it every time counts change
+            let current = *pair_counts.get(&top.pair).unwrap_or(&0);
+            if top.count != current as u64 {
+                top.count = current as u64;
+                if top.count > 0 {
+                    heap.push(top);
+                }
+                continue;
+            }
+            if top.count == 0 { //if this is ever true we've made one big massive token LOL
+                break;
+            }
+
+            //record the merge
+            let new_id = 256 + merges_done;
+            self.merges.insert(top.pair, new_id);
+
+            // merge this pair in all words where it occurs
+            let mut local_pos_updates: AHashMap<Pair, AHashSet<usize>> = AHashMap::new();
+            for &word_idx in &top.pos {
+                //apply merge to this word and collect the pair-count deltas
+                let changes = words[word_idx].merge_pair(top.pair, new_id);
+                // update global pair counts based on this word's count
+                for (pair, delta) in changes {
+                    let delta_total = delta * counts[word_idx];
+                    if delta_total != 0 {
+                        *pair_counts.entry(pair).or_default() += delta_total;
+                        if delta > 0 {
+                            local_pos_updates.entry(pair).or_default().insert(word_idx);
+                        }
+                    }
+                }
+            }
+
+            // add the updated pair counts back to the heap
+            for (pair, pos) in local_pos_updates {
+                let cnt = *pair_counts.get(&pair).unwrap_or(&0);
+                if cnt > 0 {
+                    heap.push(MergeJob {
+                        pair,
+                        count: cnt as u64,
+                        pos,
+                    });
+                }
+            }
+            merges_done += 1;
+
+            //log progress every 1%
+            let current_percent = (merges_done * 100) / num_merges;
+            if current_percent > last_log_percent {
+                log::info!(
+                    "Progress: {}%  ({}/{} merges) - Last merge {:?} -> {} (frequency: {})",
+                    current_percent,
+                    merges_done,
+                    num_merges,
+                    top.pair,
+                    new_id,
+                    top.count,
+                );
+                last_log_percent = current_percent;
+            }
+        }
+
+        log::info!("Training complete with {} merges", merges_done);
+    } 
 
 }
 
@@ -124,7 +290,7 @@ impl Tokenizer {
         vocab_size: u32,
         buffer_size: usize,
         pattern: Option<String>,
-    ) -> PyResult<StdHashMap<String, i32>> {// TODO : CHANGE THIS BACK TO NOTHING -- ONLY IN HERE TO EXPOSE TO PYTHON AND TEST INITIALLY
+    ) -> PyResult<()> {
         //Use provided pattern or default to the GPT-4 pattern
         let pattern_str = pattern.unwrap_or_else(|| GPT4_PATTERN.to_string());
 
@@ -221,19 +387,21 @@ impl Tokenizer {
         }
         log::info!("Processed {} sequences total, {} unique", total_sequences, counts.len());
 
-        //UNCOMMENT THIS LATER
-        // //Materialize words & counts
-        // let mut words = Vec::with_capacity(counts.len());
-        // let mut cvec = Vec::with_capacity(counts.len());
-        // for (chunk, c) in counts.into_iter() {
-        //     words.push(Word::new(chunk.as_bytes().iter().map(|&b| b as u32).collect()));
-        //     cvec.push(c);
-        // }
+        // UNCOMMENT THIS LATER
+        //Materialize words & counts
+        let mut words = Vec::with_capacity(counts.len());
+        let mut cvec = Vec::with_capacity(counts.len());
+        for (chunk, c) in counts.into_iter() {
+            words.push(Word::new(chunk.as_bytes().iter().map(|&b| b as u32).collect()));
+            cvec.push(c);
+        }
 
-        //CONVERT AHashMap --> StdHashMap for testing -- REMOVE AFTER
-        let result_map: StdHashMap<String, i32> = counts.into_iter().map(|(k,v)| (k.to_string(), v)).collect();
+        self.train_core_incremental(words, cvec, vocab_size);
+
+        // //CONVERT AHashMap --> StdHashMap for testing -- REMOVE AFTER
+        // let result_map: StdHashMap<String, i32> = counts.into_iter().map(|(k,v)| (k.to_string(), v)).collect();
         
-        Ok(result_map)
+        Ok(())
     }
 }
 
