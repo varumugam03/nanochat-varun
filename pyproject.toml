@@ -1,5 +1,5 @@
 [project]
-name = "nanochat-varun"
+name = "nanochat_varun"
 version = "0.1.0"
 description = "my recreation of Andrej Karpathy's ChatGPT clone"
 readme = "README.md"
@@ -13,12 +13,16 @@ dependencies = [
     "wandb"
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["nanochat_varun"]
-
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+
+[tool.maturin]
+
+manifest-path = "rustbpe/Cargo.toml"
+python-source = "." 
+
 
 
 [tool.uv]
