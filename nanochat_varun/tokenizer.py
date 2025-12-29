@@ -12,7 +12,7 @@ class Tokenizer:
         self.enc = enc
 
     @classmethod
-    def train_tokenizer(cls, text_iter, vocab_size, buffer_size):
+    def train_tokenizer(cls, text_iter, vocab_size, buffer_size=8192):
         tokenizer = _rustbpe.Tokenizer()
         #assert vocab_size - special tokens >= 256
         vocab_size_no_special = vocab_size - len(SPECIAL_TOKENS)
@@ -45,8 +45,11 @@ class Tokenizer:
 
 
     def save(self, path):
-        with open(path, "wb") as f:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        pickle_path = os.path.join(os.path.dirname(path), "tokenizer.pkl")
+        with open(pickle_path, "wb") as f:
             pickle.dump(self.enc, f)
+        print(f"Saved tokenizer encoding to {pickle_path}")
 
     def encode_special(self, text):
         return self.enc.encode_single_token(text)

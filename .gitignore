@@ -1,0 +1,7 @@
+base_data/
+input.txt
+tokenizer.pkl
+.DS_Store
+nanochat_varun/__pycache__
+rustbpe/Cargo.lock
+scripts/__pycache__
