@@ -436,6 +436,10 @@ impl Tokenizer {
 
     }
 
+    pub fn get_pattern(&self) -> String {
+        self.pattern.clone()
+    }
+
 }
 
 #[pymodule]

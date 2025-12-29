@@ -1,5 +1,8 @@
+import os
 import torch
 from dataclasses import dataclass
+
+os.environ["NANOCHAT_BASE_DIR"] = "./"
 
 def get_device():
     # CUDA --> MPS --> CPU
@@ -12,6 +15,9 @@ def get_device():
 
     print(f"Detected {device_type} device")
     return device_type
+
+def get_base_dir():
+    return os.environ.get("NANOCHAT_BASE_DIR")
 
 
 @dataclass
