@@ -74,6 +74,12 @@ class Tokenizer:
     def decode(self, token_ids):
         return self.enc.decode(token_ids)
 
+    def get_vocab_size(self):
+        return self.enc.n_vocab
+
+    def get_special_tokens(self):
+        return self.enc.special_tokens_set
+
 if __name__ == "__main__":
 
     def file_iterator(file_path):
