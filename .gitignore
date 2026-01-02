@@ -1,6 +1,6 @@
 base_data/
 input.txt
-tokenizer.pkl
+tokenizer/
 .DS_Store
 nanochat_varun/__pycache__
 rustbpe/Cargo.lock

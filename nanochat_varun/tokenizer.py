@@ -10,6 +10,7 @@ SPECIAL_TOKENS = [
 class Tokenizer:
     def __init__(self, enc, bos_token):
         self.enc = enc
+        self.bos_token = bos_token
 
     @classmethod
     def train_tokenizer(cls, text_iter, vocab_size, buffer_size=8192):
@@ -34,11 +35,12 @@ class Tokenizer:
             mergeable_ranks=mergeable_ranks,
             special_tokens=special_tokens,
         )
-        return cls(enc, SPECIAL_TOKENS)
+        return cls(enc, SPECIAL_TOKENS[0])
 
     @classmethod
     def load(cls, path):
-        with open(path, "rb") as f:
+        pickle_path = os.path.join(os.path.dirname(path), "tokenizer.pkl")
+        with open(pickle_path, "rb") as f:
             enc = pickle.load(f)
 
         return cls(enc, SPECIAL_TOKENS[0])
@@ -80,6 +82,20 @@ class Tokenizer:
     def get_special_tokens(self):
         return self.enc.special_tokens_set
 
+    def get_bos_token(self):
+        return self.bos_token
+
+    #take in a list of token ids and return a list of what they represent and make sure the raw bytes are utf-8 safe
+    def decode_bytes_visualizer(self, token_ids):
+        return [self.enc.decode_single_token_bytes(t_id) for t_id in token_ids]
+
+#convenience functions
+
+def get_tokenizer():
+    from nanochat_varun.common import get_base_dir
+    tokenizer_path = os.path.join(get_base_dir(), "tokenizer/")
+    return Tokenizer.load(tokenizer_path)
+
 if __name__ == "__main__":
 
     def file_iterator(file_path):
@@ -98,11 +114,11 @@ if __name__ == "__main__":
     # tokenizer = Tokenizer.train_tokenizer(file_iterator("input.txt"), vocab_size=50257, buffer_size=10000)
     # tokenizer.save("tokenizer.pkl")
 
-    tokenizer = Tokenizer.load("tokenizer.pkl")
+    tokenizer = Tokenizer.load("tokenizer/tokenizer.pkl")
 
 
 
-    ids = tokenizer.encode("Cash likes penises in his ass because he's a twink 🥰")
+    ids = tokenizer.encode("Hello  world my name is Varun!")
 
     # Assuming 'tokenizer' is your RustBPETokenizer instance
     # and 'ids' is the list of integers you outputted
