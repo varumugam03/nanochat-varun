@@ -193,3 +193,88 @@ class GPT(nn.Module):
         else:
             # inference
             return logits
+
+
+
+
+
+
+
+#Just thinking out loud here:
+
+"""
+Just for normal attention :
+
+x = (T, C) - sequence length by embedding dimension
+
+Q = (C, C) - we call C the hidden dimension size, so we can thinking of this as having C columns 
+            asking C distinct question - its more subtle than that but that will do for now
+
+when you do x @ Q = x_q ~ (T, C)
+
+x @ Q takes every row of x and does a dot product with every column of Q
+
+[x x x x x x x x]               [ x                      ]
+[               ]               [ x                      ]
+[               ]       X       [ x                      ]
+[               ]               [ x                      ]
+[               ]               [ x                      ]
+                                [ x                      ]
+                                [ x                      ]
+                                [ x                      ]
+
+
+this results in a matrix x_q ~ (T, C) which essentially is another matrix that basically says
+how close is this token to the C questions. so one row in this resulting matrix consists of C
+values that indicates how much this token cares about a particular "Question" or direction in
+this dimensional space.
+
+the same thing is done with the K matrix
+
+where x @ K = x_k ~ (T, C). which essentially is another matrix that basically says how close
+is this token to these C answers. so one row in this resulting matrix consists of C values that
+indicate how much this token cares about this particular "Answer" or direction in this dimensional
+space.
+
+when you transpose x_k -> x_k^T. the meaning flips it now has dimensions ~ (C, T), where now each
+row represents all the different answers, and if you take one row, then each value/column in that
+row represents how much a particular token gives that answer
+
+x_q @ x_k^T ~ (T, T) because you can think of the x_q matrix of a matrix of all the tokens and how
+many questions each token asks, and you can think of the x_k^T matrix as a matrix of all the questions
+and how many tokens closely answer that question
+
+
+[x x x x x x x x]               [ x        ]                [x      ]
+[               ]               [ x        ]                [       ]
+[               ]       X       [ x        ]        =       [       ]
+[               ]               [ x        ]                [       ]
+[               ]               [ x        ]
+                                [ x        ]
+                                [ x        ]
+                                [ x        ]
+
+this essentially says how many questions does token 1 ask for example, and how many answers does token 1 have.
+when you do the dot product it essentially says, how much should token 1 attend to this token (in this case itself)
+
+now because its causal you mask out the upper triangle of this resulting matrix, resulting in a lower triangular
+matrix of attetion scores.
+
+you take this resulting matrix and apply dropout (if wanted) at random to get rid of overreliance on particular tokens
+like bos or something.
+
+apply softmax
+
+then you multiply with the value matrix x_v -> (T, T) x (T, C) = (T, C). As you perform the dot products you will get
+a weighted combination of each of the learned value embeddings for the tokens a particular token attends to.
+
+a question i had is why you'd need a whole new learned value embedding for each attention block, could you not just use the
+learned embedding for the token. I think the reason for this is because each attention block answers different questions
+and because of that the context of the token changes with the question to be answered, so it's better to decouple
+the context meaning from the tokens base meaning.
+
+so the output of the scaled_dot_product_attention (disregarding batch size) is a matrix (T, C) which has the context
+aware embeddings for each token. The feed forward layer then mixes all the information together to produce a
+richer understanding of the sentence.
+
+"""

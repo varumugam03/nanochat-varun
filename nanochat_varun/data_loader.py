@@ -55,6 +55,8 @@ def tokenizing_data_loader_with_state_mps(B, T, split, tokenizer_threads=4, toke
             for token_list in token_lists:
                 token_buffer.extend(token_list)
         tokens = [token_buffer.popleft() for _ in range(needed_tokens)]
+
+        #TODO - add optimization to pin memory
         scratch_tokens = torch.tensor(tokens, dtype=torch.long, device=device)
         inputs = scratch_tokens[:-1].view(B, T)
         targets = scratch_tokens[1:].view(B, T)  
